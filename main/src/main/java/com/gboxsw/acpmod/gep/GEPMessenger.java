@@ -1,6 +1,7 @@
 package com.gboxsw.acpmod.gep;
 
 import java.io.*;
+import java.util.logging.*;
 
 /**
  * Thread-safe implementation of messenger implementing the GEP.
@@ -63,6 +64,21 @@ public class GEPMessenger {
 		 */
 		void onMessageReceived(int tag, byte[] message);
 	}
+
+	/**
+	 * Name of the communication thread.
+	 */
+	private static final String THREAD_NAME = "GEPMessenger - Communication thread";
+
+	/**
+	 * Logger.
+	 */
+	private static final Logger logger = Logger.getLogger(GEPMessenger.class.getName());
+
+	/**
+	 * Delay (in milliseconds) between two attempts to connect.
+	 */
+	private final long RECONNECT_DELAY = 5000;
 
 	/**
 	 * Byte indicating start of a new message
@@ -145,6 +161,11 @@ public class GEPMessenger {
 	private Thread communicationThread;
 
 	/**
+	 * Sets whether connection should be reconnected if failed.
+	 */
+	private boolean automaticReconnect = true;
+
+	/**
 	 * Indicates that the communication thread is a daemon thread.
 	 */
 	private boolean daemon;
@@ -170,7 +191,7 @@ public class GEPMessenger {
 	 * Indicates that the messenger is connecting (for the first time, i.e., not
 	 * after connection has been broken).
 	 */
-	private boolean connecting = false;
+	private boolean firstConnecting = false;
 
 	/**
 	 * Internal synchronization lock.
@@ -226,15 +247,43 @@ public class GEPMessenger {
 	 * Marks the communication thread of the messenger as either a daemon thread
 	 * or a user thread.
 	 * 
-	 * @param on
+	 * @param daemon
 	 *            if true, marks the communication thread as a daemon thread.
 	 */
-	public void setDaemon(boolean on) {
+	public void setDaemon(boolean daemon) {
 		synchronized (lock) {
 			if (isRunning()) {
-				throw new RuntimeException("The messenger is running. The method cannot be invoked.");
+				throw new IllegalStateException("The messenger is running. The method cannot be invoked.");
 			}
-			this.daemon = on;
+			this.daemon = daemon;
+		}
+	}
+
+	/**
+	 * Returns whether the client will automatically attempt to reconnect, if
+	 * the connection is lost.
+	 * 
+	 * @return true, if automatic reconnect is enabled, false otherwise.
+	 */
+	public boolean isAutomaticReconnect() {
+		synchronized (lock) {
+			return automaticReconnect;
+		}
+	}
+
+	/**
+	 * Sets whether the client will automatically attempt to reconnect, if the
+	 * connection is lost.
+	 * 
+	 * @param automaticReconnect
+	 *            if set to true, automatic reconnect will be enabled.
+	 */
+	public void setAutomaticReconnect(boolean automaticReconnect) {
+		synchronized (lock) {
+			if (isRunning()) {
+				throw new IllegalStateException("The messenger is running. The method cannot be invoked.");
+			}
+			this.automaticReconnect = automaticReconnect;
 		}
 	}
 
@@ -278,36 +327,54 @@ public class GEPMessenger {
 			communicationThread = new Thread(new Runnable() {
 				@Override
 				public void run() {
-					try {
-						connectAndReadMessages();
-					} catch (Exception e) {
-						e.printStackTrace();
-					} finally {
-						synchronized (lock) {
-							// store that there is no running communication
-							// thread
-							communicationThread = null;
-						}
-					}
+					communicate();
 				}
 			}, "GEPMessenger");
 
 			// start the communication thread
 			stopFlag = false;
-			connecting = true;
+			firstConnecting = true;
 			communicationThread.setDaemon(daemon);
-			communicationThread.setName("GEPMessenger - Communication thread");
+			communicationThread.setName(THREAD_NAME);
 			communicationThread.start();
 
 			// if required, wait for establishing a connection
 			if (waitForConnection) {
-				while (connecting) {
+				while (firstConnecting) {
 					try {
 						lock.wait();
 					} catch (InterruptedException ignore) {
 
 					}
 				}
+			}
+		}
+	}
+
+	/**
+	 * Executes code of the communication thread.
+	 */
+	private void communicate() {
+		try {
+			while (!stopFlag) {
+				connectAndReadMessages();
+				if (automaticReconnect) {
+					try {
+						Thread.sleep(RECONNECT_DELAY);
+					} catch (InterruptedException ignore) {
+						// interrupted exceptions are ignored
+					}
+				} else {
+					break;
+				}
+			}
+		} catch (Exception e) {
+			logger.log(Level.SEVERE, "Unexpected state or error on GEP connection.", e);
+		} finally {
+			synchronized (lock) {
+				// store that there is no running communication
+				// thread
+				communicationThread = null;
 			}
 		}
 	}
@@ -348,7 +415,7 @@ public class GEPMessenger {
 
 	/**
 	 * Sends a message and returns a send request objects that provides status
-	 * information.
+	 * information. The method is blocked until the message is sent.
 	 * 
 	 * @param destinationId
 	 *            the identifier of the receiver. Allowed values are between 0
@@ -400,13 +467,17 @@ public class GEPMessenger {
 
 	/**
 	 * Sends a message and returns a send request objects that provides status
-	 * information.
+	 * information. The method is blocked until the message is sent.
 	 *
 	 * @param destinationId
 	 *            the identifier of the receiver. Allowed values are between 0
 	 *            and 15, 0 stands for broadcasted message.
 	 * @param message
 	 *            the binary message.
+	 * @return true, if the message has been sent, false otherwise.
+	 * @throws RuntimeException
+	 *             when message cannot be sent due to reasons different from the
+	 *             state of communication channel.
 	 */
 	public boolean sendMessage(int destinationId, byte[] message) {
 		return sendMessage(destinationId, message, -1);
@@ -500,13 +571,14 @@ public class GEPMessenger {
 			try {
 				sessionStream = socket.createStream();
 			} catch (Exception e) {
-				throw new RuntimeException("Unable to open connection.", e);
+				logger.log(Level.SEVERE, "Unable to open connection.", e);
+				return;
 			}
 			final InputStream inputStream = sessionStream.getInputStream();
 
 			// save that messenger is connected (has a stream).
 			synchronized (lock) {
-				connecting = false;
+				firstConnecting = false;
 				connected = true;
 				this.ioStream = sessionStream;
 				lock.notifyAll();
@@ -630,15 +702,19 @@ public class GEPMessenger {
 				}
 			}
 		} catch (Exception e) {
-			System.err.println("Communication using GEP protocol failed.");
+			logger.log(Level.SEVERE, "Communication failed or disconnected.", e);
 		} finally {
 			if (sessionStream != null) {
-				sessionStream.close();
+				try {
+					sessionStream.close();
+				} catch (Exception e) {
+					logger.log(Level.SEVERE, "Closing of session stream failed.", e);
+				}
 			}
 
 			// set disconnected state
 			synchronized (lock) {
-				connecting = false;
+				firstConnecting = false;
 				connected = false;
 				this.ioStream = null;
 				lock.notifyAll();

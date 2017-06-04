@@ -4,16 +4,16 @@
 
 	<groupId>com.gboxsw.acpmod</groupId>
 	<artifactId>gep</artifactId>
-	<version>0.0.1-SNAPSHOT</version>
+	<version>1.0.0</version>
 	<packaging>jar</packaging>
 
 	<name>gep</name>
-	<url>http://maven.apache.org</url>
+	<url>https://github.com/gboxsw/acpmod-gep-java</url>
 	<description>GEP messenger for Java.</description>
 
 	<issueManagement>
 		<system>github</system>
-		<url>https://github.com/gboxsw/miniac/issues</url>
+		<url>https://github.com/gboxsw/acpmod-gep-java/issues</url>
 	</issueManagement>
 
 	<licenses>
@@ -33,9 +33,9 @@
 	</developers>
 
 	<scm>
-		<connection>scm:git:git@github.com:gboxsw/miniac.git</connection>
-		<developerConnection>scm:git:git@github.com:gboxsw/miniac.git</developerConnection>
-		<url>git@github.com:gboxsw/miniac.git</url>
+		<connection>scm:git:git@github.com:gboxsw/acpmod-gep-java.git</connection>
+		<developerConnection>scm:git:git@github.com:gboxsw/acpmod-gep-java.git</developerConnection>
+		<url>git@github.com:gboxsw/acpmod-gep-java.git</url>
 	</scm>
 
 	<properties>
