@@ -605,7 +605,7 @@ public class GEPMessenger {
 				if (receivedBytes < 0) {
 					break;
 				}
-
+		
 				// process received bytes
 				dataloop: for (int i = 0; i < receivedBytes; i++) {
 					int receivedByte = inputBuffer[i] & 0xFF;
