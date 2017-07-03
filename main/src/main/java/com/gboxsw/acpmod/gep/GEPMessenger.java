@@ -76,6 +76,12 @@ public class GEPMessenger {
 	private static final Logger logger = Logger.getLogger(GEPMessenger.class.getName());
 
 	/**
+	 * Default value of initial delay (in milliseconds) before sending/receiving
+	 * messages in a new session.
+	 */
+	private final long INITIAL_DELAY = 1000;
+
+	/**
 	 * Delay (in milliseconds) between two attempts to connect.
 	 */
 	private final long RECONNECT_DELAY = 5000;
@@ -164,6 +170,12 @@ public class GEPMessenger {
 	 * Sets whether connection should be reconnected if failed.
 	 */
 	private boolean automaticReconnect = true;
+
+	/**
+	 * The initial delay (in milliseconds) before sending/receiving messages in
+	 * a new session.
+	 */
+	private long initialDelay = INITIAL_DELAY;
 
 	/**
 	 * Indicates that the communication thread is a daemon thread.
@@ -284,6 +296,38 @@ public class GEPMessenger {
 				throw new IllegalStateException("The messenger is running. The method cannot be invoked.");
 			}
 			this.automaticReconnect = automaticReconnect;
+		}
+	}
+
+	/**
+	 * Returns the initial delay before sending/receiving messages in a new
+	 * session.
+	 * 
+	 * @return the initial delay in milliseconds.
+	 */
+	public long getInitialDelay() {
+		synchronized (lock) {
+			return initialDelay;
+		}
+	}
+
+	/**
+	 * Sets the initial delay before sending/receiving messages in a new
+	 * session.
+	 * 
+	 * @param initialDelay
+	 *            the initial delay in milliseconds.
+	 */
+	public void setInitialDelay(long initialDelay) {
+		if (initialDelay < 1) {
+			throw new IllegalArgumentException("The initial delay must be a positive value.");
+		}
+
+		synchronized (lock) {
+			if (isRunning()) {
+				throw new IllegalStateException("The messenger is running. The method cannot be invoked.");
+			}
+			this.initialDelay = initialDelay;
 		}
 	}
 
@@ -575,6 +619,13 @@ public class GEPMessenger {
 				return;
 			}
 			final InputStream inputStream = sessionStream.getInputStream();
+			
+			// give some time to end-point device to prepare
+			try {
+				Thread.sleep(initialDelay);
+			} catch (Exception ignore) {
+
+			}
 
 			// save that messenger is connected (has a stream).
 			synchronized (lock) {
@@ -605,7 +656,7 @@ public class GEPMessenger {
 				if (receivedBytes < 0) {
 					break;
 				}
-		
+
 				// process received bytes
 				dataloop: for (int i = 0; i < receivedBytes; i++) {
 					int receivedByte = inputBuffer[i] & 0xFF;
